@@ -5,11 +5,28 @@ const openai = new OpenAI({
 });
 
 export default async function handler(req, res) {
+  // Add CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
+    // Check if OpenAI API key is configured
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ 
+        error: 'OpenAI API key not configured',
+        details: 'Please set OPENAI_API_KEY environment variable' 
+      });
+    }
+
     const { image } = req.body;
 
     if (!image) {
@@ -17,7 +34,7 @@ export default async function handler(req, res) {
     }
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4-vision-preview",
+      model: "gpt-4o",
       messages: [
         {
           role: "user",
@@ -35,7 +52,7 @@ export default async function handler(req, res) {
                 "foodName": "name of the food",
                 "isSafe": true/false,
                 "explanation": "detailed explanation of your assessment",
-                "warnings": ["warning1", "warning2"] // array of strings, empty if no warnings
+                "warnings": ["warning1", "warning2"]
               }`
             },
             {
@@ -47,7 +64,8 @@ export default async function handler(req, res) {
           ]
         }
       ],
-      max_tokens: 500
+      max_tokens: 500,
+      temperature: 0.1
     });
 
     const content = response.choices[0].message.content;
@@ -55,13 +73,24 @@ export default async function handler(req, res) {
     // Try to parse JSON response
     let analysis;
     try {
-      analysis = JSON.parse(content);
+      // Clean the response to extract JSON
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      const jsonString = jsonMatch ? jsonMatch[0] : content;
+      analysis = JSON.parse(jsonString);
+      
+      // Ensure required fields exist
+      if (!analysis.foodName) analysis.foodName = "Unknown food item";
+      if (typeof analysis.isSafe !== 'boolean') analysis.isSafe = false;
+      if (!analysis.explanation) analysis.explanation = "Unable to analyze the image properly.";
+      if (!Array.isArray(analysis.warnings)) analysis.warnings = [];
+      
     } catch (parseError) {
+      console.error('JSON parsing error:', parseError);
       // If JSON parsing fails, create a structured response
       analysis = {
         foodName: "Unknown food item",
         isSafe: false,
-        explanation: content,
+        explanation: content || "Unable to analyze the image. Please try again with a clearer image.",
         warnings: ["Unable to properly analyze the image. Please try again with a clearer image."]
       };
     }
@@ -69,9 +98,25 @@ export default async function handler(req, res) {
     res.status(200).json(analysis);
   } catch (error) {
     console.error('Error analyzing food:', error);
+    
+    // More specific error handling
+    if (error.code === 'insufficient_quota') {
+      return res.status(500).json({ 
+        error: 'OpenAI API quota exceeded',
+        details: 'Please check your OpenAI account billing and usage limits' 
+      });
+    }
+    
+    if (error.code === 'invalid_api_key') {
+      return res.status(500).json({ 
+        error: 'Invalid OpenAI API key',
+        details: 'Please check your OPENAI_API_KEY environment variable' 
+      });
+    }
+
     res.status(500).json({ 
       error: 'Failed to analyze food image',
-      details: error.message 
+      details: error.message || 'Unknown error occurred'
     });
   }
 }
