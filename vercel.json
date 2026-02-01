@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "api/analyze-food.js": {
-      "runtime": "nodejs18.x"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
