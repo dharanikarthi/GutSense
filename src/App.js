@@ -27,7 +27,8 @@ function App() {
     try {
       const base64Image = await convertToBase64(selectedImage);
       
-      const response = await fetch('/api/analyze-food', {
+      // First try the simple test endpoint
+      const response = await fetch('/api/analyze-simple', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -38,12 +39,14 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to analyze image');
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || 'Failed to analyze image');
       }
 
       const result = await response.json();
       setAnalysis(result);
     } catch (err) {
+      console.error('Analysis error:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -76,6 +79,23 @@ function App() {
           <label htmlFor="file-upload" className="upload-button">
             📸 Choose Image
           </label>
+          
+          {/* Debug button */}
+          <button 
+            onClick={async () => {
+              try {
+                const response = await fetch('/api/debug');
+                const data = await response.json();
+                alert(JSON.stringify(data, null, 2));
+              } catch (err) {
+                alert('Debug failed: ' + err.message);
+              }
+            }}
+            className="debug-button"
+            style={{marginLeft: '10px', padding: '10px', fontSize: '12px'}}
+          >
+            🔧 Debug API
+          </button>
         </div>
 
         {imagePreview && (
