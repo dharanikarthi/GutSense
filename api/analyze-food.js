@@ -14,9 +14,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Debug logging
-  console.log('API Key exists:', !!process.env.OPENAI_API_KEY);
-  console.log('Request body:', req.body ? 'Present' : 'Missing');
+  console.log('Starting food analysis...');
 
   try {
     // Check if OpenAI API key is configured
@@ -34,7 +32,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No image provided' });
     }
 
-    // Import OpenAI here to avoid issues with module loading
+    console.log('Image received, initializing OpenAI...');
+
+    // Import OpenAI dynamically
     const { OpenAI } = await import('openai');
     
     const openai = new OpenAI({
@@ -43,21 +43,25 @@ export default async function handler(req, res) {
 
     console.log('Making OpenAI API call...');
 
+    // Use the correct model name for vision
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini", // Use the mini version which is more reliable and cheaper
       messages: [
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `Analyze this food image and provide a JSON response with:
-              {
-                "foodName": "name of the food",
-                "isSafe": true or false,
-                "explanation": "detailed explanation",
-                "warnings": ["any warnings as array"]
-              }`
+              text: `You are a food safety expert. Analyze this food image and respond with ONLY a JSON object in this exact format:
+
+{
+  "foodName": "specific name of the food item",
+  "isSafe": true,
+  "explanation": "Brief explanation of your assessment including freshness, appearance, and safety factors",
+  "warnings": []
+}
+
+Set isSafe to false if you see any signs of spoilage, mold, unusual discoloration, or other safety concerns. Include specific warnings in the warnings array if needed.`
             },
             {
               type: "image_url",
@@ -68,13 +72,14 @@ export default async function handler(req, res) {
           ]
         }
       ],
-      max_tokens: 500,
+      max_tokens: 300,
       temperature: 0.1
     });
 
     console.log('OpenAI response received');
 
     const content = response.choices[0].message.content;
+    console.log('Raw response:', content);
     
     // Try to parse JSON response
     let analysis;
@@ -84,24 +89,28 @@ export default async function handler(req, res) {
       const jsonString = jsonMatch ? jsonMatch[0] : content;
       analysis = JSON.parse(jsonString);
       
-      // Ensure required fields exist
-      if (!analysis.foodName) analysis.foodName = "Unknown food item";
-      if (typeof analysis.isSafe !== 'boolean') analysis.isSafe = false;
-      if (!analysis.explanation) analysis.explanation = "Unable to analyze the image properly.";
-      if (!Array.isArray(analysis.warnings)) analysis.warnings = [];
+      // Ensure required fields exist with proper types
+      analysis.foodName = analysis.foodName || "Unknown food item";
+      analysis.isSafe = typeof analysis.isSafe === 'boolean' ? analysis.isSafe : false;
+      analysis.explanation = analysis.explanation || "Unable to analyze the image properly.";
+      analysis.warnings = Array.isArray(analysis.warnings) ? analysis.warnings : [];
       
     } catch (parseError) {
       console.error('JSON parsing error:', parseError);
+      console.error('Content that failed to parse:', content);
+      
       // If JSON parsing fails, create a structured response
       analysis = {
         foodName: "Unknown food item",
         isSafe: false,
-        explanation: content || "Unable to analyze the image. Please try again with a clearer image.",
-        warnings: ["Unable to properly analyze the image. Please try again with a clearer image."]
+        explanation: "The AI was unable to properly analyze this image. Please try again with a clearer, well-lit photo of the food.",
+        warnings: ["Image analysis failed - please try a different photo"]
       };
     }
 
+    console.log('Final analysis:', analysis);
     res.status(200).json(analysis);
+
   } catch (error) {
     console.error('Error analyzing food:', error);
     
@@ -120,10 +129,16 @@ export default async function handler(req, res) {
       });
     }
 
+    if (error.message && error.message.includes('model')) {
+      return res.status(500).json({ 
+        error: 'Model not available',
+        details: 'The requested AI model is not available. Please try again later.' 
+      });
+    }
+
     res.status(500).json({ 
       error: 'Failed to analyze food image',
-      details: error.message || 'Unknown error occurred',
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      details: error.message || 'Unknown error occurred'
     });
   }
 }

@@ -27,8 +27,8 @@ function App() {
     try {
       const base64Image = await convertToBase64(selectedImage);
       
-      // First try the simple test endpoint
-      const response = await fetch('/api/analyze-simple', {
+      // Use the real analyze-food endpoint
+      const response = await fetch('/api/analyze-food', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
