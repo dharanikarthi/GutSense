@@ -1,8 +1,4 @@
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Serverless function for food analysis using OpenAI Vision API
 
 export default async function handler(req, res) {
   // Add CORS headers
@@ -18,12 +14,17 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Debug logging
+  console.log('API Key exists:', !!process.env.OPENAI_API_KEY);
+  console.log('Request body:', req.body ? 'Present' : 'Missing');
+
   try {
     // Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY) {
+      console.error('OpenAI API key not found in environment variables');
       return res.status(500).json({ 
         error: 'OpenAI API key not configured',
-        details: 'Please set OPENAI_API_KEY environment variable' 
+        details: 'Please set OPENAI_API_KEY environment variable in Vercel dashboard' 
       });
     }
 
@@ -33,6 +34,15 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No image provided' });
     }
 
+    // Import OpenAI here to avoid issues with module loading
+    const { OpenAI } = await import('openai');
+    
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    console.log('Making OpenAI API call...');
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -41,18 +51,12 @@ export default async function handler(req, res) {
           content: [
             {
               type: "text",
-              text: `Analyze this food image and provide:
-              1. Identify what food this is
-              2. Determine if it's safe to eat (consider freshness, mold, spoilage, etc.)
-              3. Provide explanation for your assessment
-              4. List any warnings or concerns
-              
-              Respond in JSON format:
+              text: `Analyze this food image and provide a JSON response with:
               {
                 "foodName": "name of the food",
-                "isSafe": true/false,
-                "explanation": "detailed explanation of your assessment",
-                "warnings": ["warning1", "warning2"]
+                "isSafe": true or false,
+                "explanation": "detailed explanation",
+                "warnings": ["any warnings as array"]
               }`
             },
             {
@@ -67,6 +71,8 @@ export default async function handler(req, res) {
       max_tokens: 500,
       temperature: 0.1
     });
+
+    console.log('OpenAI response received');
 
     const content = response.choices[0].message.content;
     
@@ -116,7 +122,8 @@ export default async function handler(req, res) {
 
     res.status(500).json({ 
       error: 'Failed to analyze food image',
-      details: error.message || 'Unknown error occurred'
+      details: error.message || 'Unknown error occurred',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
